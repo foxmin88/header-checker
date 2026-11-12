@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>헤더 점검기</title>
+<style>
+  :root {
+    --bg: #f2f4f6; --surface: #ffffff; --ink: #15212b; --muted: #5d6b78; --line: #d8dee4;
+    --pass: #1b7a4b; --warn: #b26a00; --fail: #b3261e; --accent: #1d4e89;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11171c; --surface: #1a232b; --ink: #e8edf1; --muted: #93a1ad; --line: #2c3945;
+      --pass: #4cc38a; --warn: #e5a04a; --fail: #f2796f; --accent: #7fb2ec;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  form { display: flex; gap: 8px; }
+  input {
+    flex: 1; min-width: 0; padding: 12px 14px; font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  }
+  button {
+    padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer;
+    color: #fff; background: var(--accent); border: 0; border-radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) { button { color: #0b141b; } }
+  button:disabled { opacity: .6; cursor: progress; }
+  input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #error { margin-top: 20px; color: var(--fail); font-weight: 600; }
+  #report { margin-top: 32px; }
+  .summary { display: flex; align-items: center; gap: 24px; margin-bottom: 24px; }
+  .grade {
+    font-size: 5.5rem; font-weight: 800; line-height: 1; width: 1.2em; text-align: center;
+  }
+  .grade.A, .grade.B { color: var(--pass); }
+  .grade.C, .grade.D { color: var(--warn); }
+  .grade.F { color: var(--fail); }
+  .summary p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+  .summary strong { color: var(--ink); font-size: 1.1rem; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  li {
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 5px solid var(--line); border-radius: 6px; padding: 12px 16px;
+  }
+  li.pass { border-left-color: var(--pass); }
+  li.warn { border-left-color: var(--warn); }
+  li.fail { border-left-color: var(--fail); }
+  .row { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
+  .pts { color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .msg { margin: 4px 0 0; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
+  code { display: block; margin-top: 8px; padding: 8px 10px; font-size: .85rem; border-radius: 4px;
+    background: var(--bg); overflow-x: auto; white-space: pre; }
+  .note { margin-top: 32px; font-size: .85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>헤더 점검기</h1>
+  <p class="lead">사이트 주소를 입력하면 보안 헤더와 쿠키 설정을 검사하고 고칠 방법을 알려줍니다.</p>
+
+  <form id="form">
+    <input id="url" type="text" placeholder="example.com" autocomplete="off" aria-label="검사할 사이트 주소" required>
+    <button id="go" type="submit">점검하기</button>
+  </form>
+
+  <div id="error" role="alert"></div>
+  <section id="report" hidden></section>
+
+  <p class="note">본인이 운영하거나 허락받은 사이트만 검사하세요. 내부망 주소는 차단됩니다.</p>
+</main>
+
+<script>
+const form = document.getElementById("form");
+const input = document.getElementById("url");
+const btn = document.getElementById("go");
+const errorBox = document.getElementById("error");
+const report = document.getElementById("report");
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;   // textContent만 사용 → XSS 방지
+  return e;
+}
+
+function render(data) {
+  report.replaceChildren();
+
+  const summary = el("div", "summary");
+  summary.append(el("div", "grade " + data.grade, data.grade));
+  const info = el("p");
+  info.append(el("strong", "", `${data.score} / ${data.max_score}점 (${data.percent}%)`));
+  info.append(document.createElement("br"));
+  info.append(document.createTextNode(`${data.final_url} · HTTP ${data.status_code}`));
+  summary.append(info);
+  report.append(summary);
+
+  const list = el("ul");
+  for (const c of data.checks) {
+    const li = el("li", c.status);
+    const row = el("div", "row");
+    row.append(el("span", "", c.name), el("span", "pts", `${c.points}/${c.max}`));
+    li.append(row, el("p", "msg", c.message));
+    if (c.status !== "pass" && c.fix) li.append(el("code", "", c.fix));
+    list.append(li);
+  }
+  report.append(list);
+  report.hidden = false;
+}
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  errorBox.textContent = "";
+  report.hidden = true;
+  btn.disabled = true;
+  btn.textContent = "검사 중…";
+  try {
+    const res = await fetch("/check?url=" + encodeURIComponent(input.value.trim()));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "검사에 실패했습니다.");
+    render(data);
+  } catch (e) {
+    errorBox.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "점검하기";
+  }
+});
+</script>
+</body>
+</html>
